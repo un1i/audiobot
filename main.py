@@ -1,45 +1,10 @@
 import telebot
-import yt_dlp
 import os
-from pydub import AudioSegment
-from config import token, save_path
 import requests
 import time
-from db import init_db, add_new_audio, get_telegram_id
-
-
-def check_audio_in_db(link):
-    with yt_dlp.YoutubeDL() as ydl:
-        youtube_id = ydl.extract_info(link, download=False)['id']
-        telegram_id = get_telegram_id(youtube_id=youtube_id)
-    return telegram_id
-
-
-def change_audio_name(title, id):
-    sym = ('/', '\\', '*', '"', ':', '?', '|', '<', '>')
-    for s in sym:
-        title = title.replace(s, '')
-    os.rename(save_path + id + '.m4a', save_path + title + '.m4a')
-    return title
-
-
-def get_audio(link):
-    ydl_opts = {
-        'format': 'm4a/bestaudio/best',
-        'outtmpl': save_path + '%(id)s.%(ext)s',
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        audio_information = ydl.extract_info(link, download=True)
-        title = audio_information['title']
-        youtube_id = audio_information['id']
-        title = change_audio_name(title, youtube_id)
-        path = save_path + title + '.m4a'
-        audio_size = os.stat(path).st_size
-        if audio_size > 50*1024*1024:
-            audio = AudioSegment.from_file(path)
-            audio.export(path, bitrate='64k')
-        res = (title, youtube_id)
-    return res
+from audio import check_audio_in_db, get_audio
+from config import token, save_path
+from db import init_db, add_new_audio
 
 
 def telegram_bot(token):
@@ -61,15 +26,17 @@ def telegram_bot(token):
                     bot.send_audio(message.chat.id, telegram_id)
                 else:
                     title, youtube_id = get_audio(message.text)
-                    audio = open(save_path + title + '.m4a', 'rb')
+                    path = save_path + youtube_id + '.m4a'
+                    audio = open(path, 'rb')
                     try:
-                        print('отправляем сообщение')
-                        telegram_id = bot.send_audio(message.chat.id, audio).audio.file_id
+                        telegram_id = bot.send_audio(message.chat.id, audio, title=title, performer='@Audio78_bot', timeout=60).audio.file_id
                         add_new_audio(youtube_id=youtube_id, telegram_id=telegram_id)
+
                     except Exception as ex:
                         raise
                     finally:
                         audio.close()
+                        os.remove(path)
             except Exception as ex:
                 print(ex)
                 bot.send_message(message.chat.id, "Что-то пошло не так...")
@@ -85,7 +52,6 @@ def telegram_bot(token):
 
 if __name__ == '__main__':
     telegram_bot(token)
-
     init_db(force=True)
 
 
